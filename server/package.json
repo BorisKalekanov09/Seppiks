@@ -1,0 +1,33 @@
+{
+  "name": "seppiks-server",
+  "version": "1.0.0",
+  "description": "Seppiks API server — Fastify gateway between the mobile app and Supabase",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "@fastify/helmet": "^11.1.1",
+    "@fastify/rate-limit": "^9.1.0",
+    "@sentry/node": "^8.0.0",
+    "@supabase/supabase-js": "^2.43.4",
+    "bullmq": "^5.7.0",
+    "fastify": "^4.27.0",
+    "ioredis": "^5.3.2",
+    "bad-words": "^3.0.4",
+    "sanitize-html": "^2.13.0",
+    "dotenv": "^16.4.5",
+    "pino-pretty": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "@types/sanitize-html": "^2.13.0",
+    "@types/bad-words": "^3.0.3",
+    "tsx": "^4.7.3",
+    "typescript": "^5.4.5"
+  }
+}
