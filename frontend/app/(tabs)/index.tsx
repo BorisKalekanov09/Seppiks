@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Dimensions, TouchableOpacity,
   Animated, PanResponder, ActivityIndicator,
@@ -11,27 +11,36 @@ import { useQuestions, Question } from '@/hooks/useQuestions';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 
 const { width, height } = Dimensions.get('window');
-const SWIPE_THRESHOLD = width * 0.2;
-const ROTATION_FACTOR = 30;
+const SWIPE_THRESHOLD = width * 0.25;
+const SWIPE_OUT_DURATION = 280;
 
 export default function HomeScreen() {
   const { user } = useAuth();
-  console.log('[HomeScreen] Mounting... User is:', !!user);
   const { questions, loading, loadMore, removeQuestion } = useQuestions();
-  console.log('[HomeScreen] useQuestions output -> loading:', loading, 'questions:', questions.length);
-  const [votedQuestion, setVotedQuestion] = useState<{ q: Question; vote: 'yes' | 'no' } | null>(null);
-  const isSwiping = useRef(false);
+  const [, forceRender] = useState(0);
 
-  // Animated values
-  const position = useRef(new Animated.ValueXY()).current;
-  const opacity = useRef(new Animated.Value(1)).current;
+  // ─── Refs to avoid stale closures in PanResponder ──────────────────────────
+  const isSwiping = useRef(false);
+  const currentQuestionRef = useRef<Question | undefined>(undefined);
+  const questionsLengthRef = useRef(0);
+  const castVoteRef = useRef<(q: Question, vote: 'yes' | 'no') => void>(() => {});
 
   const currentQuestion = questions[0];
   const nextQuestion = questions[1];
 
+  // Keep refs in sync with the latest render values
+  useEffect(() => {
+    currentQuestionRef.current = currentQuestion;
+    questionsLengthRef.current = questions.length;
+  });
+
+  // ─── Animated values ────────────────────────────────────────────────────────
+  const position = useRef(new Animated.ValueXY()).current;
+
   const rotate = position.x.interpolate({
-    inputRange: [-width * 1.8, -width, -width / 2, 0, width / 2, width, width * 1.8],
-    outputRange: ['-540deg', '-60deg', '-15deg', '0deg', '15deg', '60deg', '540deg'],
+    inputRange: [-width / 2, 0, width / 2],
+    outputRange: ['-12deg', '0deg', '12deg'],
+    extrapolate: 'clamp',
   });
 
   const yesOpacity = position.x.interpolate({
@@ -48,23 +57,22 @@ export default function HomeScreen() {
 
   const nextScale = position.x.interpolate({
     inputRange: [-width / 2, 0, width / 2],
-    outputRange: [1, 0.95, 1],
+    outputRange: [1, 0.93, 1],
     extrapolate: 'clamp',
   });
 
   const nextOpacity = position.x.interpolate({
     inputRange: [-width / 2, 0, width / 2],
-    outputRange: [0.9, 0.6, 0.9],
+    outputRange: [1, 0.6, 1],
     extrapolate: 'clamp',
   });
 
+  // ─── Vote logic ─────────────────────────────────────────────────────────────
   const castVote = useCallback(async (question: Question, vote: 'yes' | 'no') => {
     if (!user) return;
     const voteValue = vote === 'yes' ? 1 : 0;
 
-    // Optimistic update
     removeQuestion(question.id);
-    setVotedQuestion({ q: question, vote });
 
     await supabase.from('votes').insert({
       user_id: user.id,
@@ -72,97 +80,119 @@ export default function HomeScreen() {
       vote: voteValue,
     });
 
-    // Update counts
     const field = vote === 'yes' ? 'yes_count' : 'no_count';
     await supabase.rpc('increment_vote', { q_id: question.id, vote_field: field });
 
-    // Preload more
-    if (questions.length <= 3) loadMore();
-  }, [user, questions.length, removeQuestion, loadMore]);
+    if (questionsLengthRef.current <= 3) loadMore();
+  }, [user, removeQuestion, loadMore]);
 
+  // Always keep castVoteRef pointing to the latest castVote
+  useEffect(() => {
+    castVoteRef.current = castVote;
+  });
+
+  // ─── Animation helpers ───────────────────────────────────────────────────────
+  const resetPosition = useCallback(() => {
+    Animated.spring(position, {
+      toValue: { x: 0, y: 0 },
+      useNativeDriver: true,
+      friction: 5,
+      tension: 40,
+    }).start();
+  }, [position]);
+
+  const flyOff = useCallback((direction: 'left' | 'right', releaseYVelocity = 0) => {
+    const targetX = direction === 'right' ? width * 1.6 : -width * 1.6;
+    const targetY = releaseYVelocity * 100;
+
+    Animated.timing(position, {
+      toValue: { x: targetX, y: targetY },
+      duration: SWIPE_OUT_DURATION,
+      useNativeDriver: true,
+    }).start(() => {
+      const q = currentQuestionRef.current;
+      if (q) castVoteRef.current(q, direction === 'right' ? 'yes' : 'no');
+      position.setValue({ x: 0, y: 0 });
+      isSwiping.current = false;
+      forceRender(n => n + 1); // trigger re-render to show next card
+    });
+  }, [position]);
+
+  // ─── Public swipeOut (used by buttons) ──────────────────────────────────────
+  const swipeOut = useCallback((direction: 'left' | 'right') => {
+    if (!currentQuestionRef.current || isSwiping.current) return;
+    isSwiping.current = true;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    flyOff(direction, 0);
+  }, [flyOff]);
+
+  // ─── PanResponder — Tinder style ─────────────────────────────────────────────
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => !isSwiping.current,
+      // Don't steal touch on press — only on clear horizontal move
+      onStartShouldSetPanResponder: () => false,
       onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponder: (_, gesture) => {
-        // Only accept the gesture if it's horizontal and not swiping
-        return !isSwiping.current && Math.abs(gesture.dx) > Math.abs(gesture.dy);
+      onMoveShouldSetPanResponder: (_, g) => {
+        if (isSwiping.current) return false;
+        return Math.abs(g.dx) > Math.abs(g.dy) && Math.abs(g.dx) > 8;
       },
       onMoveShouldSetPanResponderCapture: () => false,
-      onPanResponderMove: (_, gesture) => {
+
+      // When gesture starts, set up offset so the card tracks finger from its current pos
+      onPanResponderGrant: () => {
+        position.stopAnimation();
+        position.extractOffset(); // fold current value into offset
+      },
+
+      // Directly map finger movement (no logic, just track)
+      onPanResponderMove: Animated.event(
+        [null, { dx: position.x, dy: position.y }],
+        { useNativeDriver: false }
+      ),
+
+      // On release: decide fly-off or snap back
+      onPanResponderRelease: (_, g) => {
+        position.flattenOffset(); // merge offset back into value
+
         if (isSwiping.current) return;
 
-        // "Automatic" feel: as soon as we detect a clear side swipe (20px), trigger the full action
-        if (Math.abs(gesture.dx) > 20) {
-          swipeOut(gesture.dx > 0 ? 'right' : 'left', gesture.dy, gesture.vy);
+        // Tinder logic: distance OR velocity triggers the swipe
+        const shouldSwipeRight = g.dx > SWIPE_THRESHOLD || g.vx > 0.8;
+        const shouldSwipeLeft = g.dx < -SWIPE_THRESHOLD || g.vx < -0.8;
+
+        if (!currentQuestionRef.current) {
+          resetPosition();
           return;
         }
 
-        // Slight movement feedback before the "snap" trigger
-        position.setValue({ x: gesture.dx, y: 0 });
+        if (shouldSwipeRight) {
+          isSwiping.current = true;
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          flyOff('right', g.vy);
+        } else if (shouldSwipeLeft) {
+          isSwiping.current = true;
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          flyOff('left', g.vy);
+        } else {
+          resetPosition();
+        }
       },
-      onPanResponderRelease: (_, gesture) => {
-        if (isSwiping.current) return;
-        // Factor in velocity to make "flicking" work smoothly
-        const forceX = gesture.dx + gesture.vx * 200;
-        if (forceX > SWIPE_THRESHOLD) swipeOut('right', gesture.dy, gesture.vy);
-        else if (forceX < -SWIPE_THRESHOLD) swipeOut('left', gesture.dy, gesture.vy);
-        else resetPosition();
-      },
-      onPanResponderTerminate: (_, gesture) => {
-        if (isSwiping.current) return;
-        const forceX = gesture.dx + gesture.vx * 200;
-        if (forceX > SWIPE_THRESHOLD) swipeOut('right', gesture.dy, gesture.vy);
-        else if (forceX < -SWIPE_THRESHOLD) swipeOut('left', gesture.dy, gesture.vy);
-        else resetPosition();
+
+      // If OS steals the gesture, snap back cleanly
+      onPanResponderTerminate: () => {
+        position.flattenOffset();
+        resetPosition();
       },
     })
   ).current;
 
-  const resetPosition = () => {
-    Animated.spring(position, {
-      toValue: { x: 0, y: 0 },
-      useNativeDriver: true,
-      friction: 6,
-      tension: 60,
-    }).start();
-  };
-
-  const swipeOut = useCallback((direction: 'left' | 'right', currentDy: number = 0, vy: number = 0) => {
-    if (!currentQuestion || isSwiping.current) return;
-    isSwiping.current = true;
-
-    // Fly way off screen with a dramatic arc and spin
-    const targetX = direction === 'right' ? width * 1.8 : -width * 1.8;
-    // Strong downward arc that feels "not straight"
-    const targetY = currentDy + (vy * 100) + 400;
-
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-    Animated.parallel([
-      Animated.timing(position, {
-        toValue: { x: targetX, y: targetY },
-        duration: 350,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacity, {
-        toValue: 0,
-        duration: 350,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      castVote(currentQuestion, direction === 'right' ? 'yes' : 'no');
-      position.setValue({ x: 0, y: 0 });
-      opacity.setValue(1);
-      isSwiping.current = false;
-    });
-  }, [currentQuestion, position, opacity, castVote]);
-
+  // ─── Comments ────────────────────────────────────────────────────────────────
   const handleComments = () => {
     if (!currentQuestion) return;
     router.push({ pathname: '/comments/[id]', params: { id: currentQuestion.id } });
   };
 
+  // ─── Render ──────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -180,13 +210,14 @@ export default function HomeScreen() {
       {/* Top bar */}
       <View style={styles.topBar}>
         <Text style={styles.logo}>Seppiks</Text>
-        <TouchableOpacity onPress={() => router.push('/settings')} style={styles.settingsBtn}>
-          <Text style={{ fontSize: 22 }}>⚙️</Text>
+        <TouchableOpacity onPress={() => router.push('/new-question')} style={styles.settingsBtn}>
+          <Text style={{ fontSize: 28, color: Colors.gold, fontWeight: '600' }}>+</Text>
         </TouchableOpacity>
       </View>
 
       {/* Card stack */}
       <View style={styles.cardArea}>
+
         {/* Next card (behind) */}
         {nextQuestion && (
           <Animated.View
@@ -194,9 +225,7 @@ export default function HomeScreen() {
               styles.card,
               styles.nextCard,
               {
-                transform: [
-                  { scale: nextScale },
-                ],
+                transform: [{ scale: nextScale }],
                 opacity: nextOpacity,
               }
             ]}
@@ -227,7 +256,6 @@ export default function HomeScreen() {
                   { translateY: position.y },
                   { rotate },
                 ],
-                opacity,
               },
             ]}
             {...panResponder.panHandlers}
@@ -257,18 +285,8 @@ export default function HomeScreen() {
                 </View>
               </View>
               <View style={styles.progressBar}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    { width: `${yesPercent}%` as any }
-                  ]}
-                />
-                <View
-                  style={[
-                    styles.progressFillNo,
-                    { width: `${noPercent}%` as any }
-                  ]}
-                />
+                <View style={[styles.progressFill, { width: `${yesPercent}%` as any }]} />
+                <View style={[styles.progressFillNo, { width: `${noPercent}%` as any }]} />
               </View>
             </View>
 
@@ -287,12 +305,12 @@ export default function HomeScreen() {
         )}
       </View>
 
-      {/* Swipe action indicators */}
+      {/* Bottom buttons */}
       <View style={styles.swipeIndicators}>
-        <TouchableOpacity style={styles.noHint} onPress={() => swipeOut('left', 0, 0)} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.noHint} onPress={() => swipeOut('left')} activeOpacity={0.7}>
           <Text style={styles.noHintText}>✗</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.yesHint} onPress={() => swipeOut('right', 0, 0)} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.yesHint} onPress={() => swipeOut('right')} activeOpacity={0.7}>
           <Text style={styles.yesHintText}>✓</Text>
         </TouchableOpacity>
       </View>
@@ -338,8 +356,8 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   nextCard: {
-    transform: [{ scale: 0.96 }, { translateY: 12 }, { rotate: '-2deg' }],
-    opacity: 0.8,
+    transform: [{ scale: 0.94 }],
+    opacity: 0.7,
   },
   emptyCard: {
     justifyContent: 'center',
