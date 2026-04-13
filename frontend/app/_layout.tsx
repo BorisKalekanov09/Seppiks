@@ -4,13 +4,25 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as Linking from 'expo-linking';
 import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { Colors } from '@/constants/theme';
 
 function RootLayoutNav() {
   const { session, loading } = useAuth();
+
+  // Handle deep links for OAuth callback (Android fallback)
+  useEffect(() => {
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      if (url.includes('code=')) {
+        supabase.auth.exchangeCodeForSession(url).catch(console.error);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     console.log('[RootLayoutNav] State changed:', { loading, hasSession: !!session, email: session?.user?.email });
@@ -57,6 +69,13 @@ function RootLayoutNav() {
         }}
       />
       <Stack.Screen name="settings" />
+      <Stack.Screen
+        name="question-stats/[id]"
+        options={{
+          presentation: 'modal',
+          animation: 'slide_from_bottom',
+        }}
+      />
     </Stack>
   );
 }

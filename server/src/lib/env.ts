@@ -25,7 +25,6 @@ function optional(name: string, fallback: string): string {
 export const env = {
   SUPABASE_URL:              requireEnv("SUPABASE_URL"),
   SUPABASE_SERVICE_ROLE_KEY: requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
-  REDIS_URL:                 optional("REDIS_URL", "redis://localhost:6379"),
   SENTRY_DSN:                optional("SENTRY_DSN", ""),
   PORT:                      parseInt(optional("PORT", "3000"), 10),
   HOST:                      optional("HOST", "0.0.0.0"),

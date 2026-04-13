@@ -276,17 +276,17 @@ export default function HomeScreen() {
             <View style={styles.resultsSection}>
               <View style={styles.resultRow}>
                 <View>
-                  <Text style={styles.resultLabel}>YES</Text>
-                  <Text style={styles.yesPercent}>{yesPercent}%</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
                   <Text style={styles.resultLabel}>NO</Text>
                   <Text style={styles.noPercent}>{noPercent}%</Text>
                 </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={styles.resultLabel}>YES</Text>
+                  <Text style={styles.yesPercent}>{yesPercent}%</Text>
+                </View>
               </View>
               <View style={styles.progressBar}>
-                <View style={[styles.progressFill, { width: `${yesPercent}%` as any }]} />
                 <View style={[styles.progressFillNo, { width: `${noPercent}%` as any }]} />
+                <View style={[styles.progressFill, { width: `${yesPercent}%` as any }]} />
               </View>
             </View>
 
@@ -376,12 +376,12 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   yesOverlay: {
-    right: Spacing.lg,
+    left: Spacing.lg,
     borderColor: Colors.yes,
     backgroundColor: Colors.yesLight,
   },
   noOverlay: {
-    left: Spacing.lg,
+    right: Spacing.lg,
     borderColor: Colors.no,
     backgroundColor: Colors.noLight,
   },

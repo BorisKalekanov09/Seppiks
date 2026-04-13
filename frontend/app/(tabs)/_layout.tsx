@@ -10,6 +10,14 @@ function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
   );
 }
 
+function PlusTabIcon({ focused }: { focused: boolean }) {
+  return (
+    <View style={[styles.plusIcon, focused && styles.plusIconActive]}>
+      <Text style={[styles.plusText, focused && styles.plusTextActive]}>+</Text>
+    </View>
+  );
+}
+
 export default function TabLayout() {
   return (
     <Tabs
@@ -32,7 +40,7 @@ export default function TabLayout() {
         name="feed"
         options={{
           title: 'Feed',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="💬" focused={focused} />,
+          tabBarIcon: ({ focused }) => <PlusTabIcon focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -74,4 +82,28 @@ const styles = StyleSheet.create({
   },
   tabEmoji: { fontSize: 22, opacity: 0.5 },
   tabEmojiActive: { opacity: 1 },
+  plusIcon: {
+    width: 44,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  plusIconActive: {
+    backgroundColor: Colors.cardHover,
+    borderColor: Colors.gold + '80',
+  },
+  plusText: {
+    fontSize: 26,
+    fontWeight: '300',
+    color: Colors.textMuted,
+    lineHeight: 30,
+  },
+  plusTextActive: {
+    color: Colors.gold,
+    fontWeight: '400',
+  },
 });

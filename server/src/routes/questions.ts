@@ -9,7 +9,6 @@ import { FastifyPluginAsync } from "fastify";
 import { supabase } from "../lib/supabase";
 import { requireAuth } from "../middleware/auth";
 import { sanitizeText, validateQuestionInput, validateCommentInput } from "../middleware/validation";
-import { datasetQueue } from "../workers/index";
 
 export const questionRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -117,21 +116,6 @@ export const questionRoutes: FastifyPluginAsync = async (fastify) => {
     if (incError) {
       request.log.error(incError);
       return reply.status(500).send({ error: "Failed to update vote counts" });
-    }
-
-    // Check if we reached 100 votes to trigger the dataset generation worker
-    const { data: qData } = await supabase
-        .from("questions")
-        .select("yes_count, no_count")
-        .eq("id", id)
-        .single();
-    
-    if (qData) {
-        const totalVotes = qData.yes_count + qData.no_count;
-        if (totalVotes === 100) {
-            // Trigger background job asynchronously
-            await datasetQueue.add('GenerateDataset', { questionId: id });
-        }
     }
 
     return { success: true };

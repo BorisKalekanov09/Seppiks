@@ -5,6 +5,8 @@ import {
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 import { supabase } from '@/lib/supabase';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 
@@ -17,7 +19,32 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
 
   const handleGoogleLogin = async () => {
-    Alert.alert('Google Sign In', 'Google OAuth requires native setup with expo-auth-session. Configure in Supabase dashboard.');
+    try {
+      setLoading(true);
+      const redirectUri = Linking.createURL('/');
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUri,
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (error) throw error;
+      if (!data.url) throw new Error('No OAuth URL returned from Supabase');
+
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUri);
+
+      if (result.type === 'success') {
+        const { error: sessionError } = await supabase.auth.exchangeCodeForSession(result.url);
+        if (sessionError) throw sessionError;
+      }
+    } catch (err: any) {
+      Alert.alert('Sign In Failed', err.message || 'Google Sign In failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleAppleLogin = async () => {

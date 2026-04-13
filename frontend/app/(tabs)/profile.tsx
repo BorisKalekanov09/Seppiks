@@ -1,10 +1,84 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { useState, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
 import { Colors, Spacing, Radius } from '@/constants/theme';
+
+interface ProfileStats {
+  votesCast: number;
+  comments: number;
+  streak: number;
+}
+
+function calculateStreak(dates: string[]): number {
+  if (dates.length === 0) return 0;
+
+  // Get unique days sorted newest first
+  const uniqueDays = [...new Set(dates.map(d => d.split('T')[0]))].sort().reverse();
+
+  const today = new Date().toISOString().split('T')[0];
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString().split('T')[0];
+
+  // Streak must include today or yesterday
+  if (uniqueDays[0] !== today && uniqueDays[0] !== yesterday) return 0;
+
+  let streak = 1;
+  for (let i = 1; i < uniqueDays.length; i++) {
+    const prev = new Date(uniqueDays[i - 1]);
+    const curr = new Date(uniqueDays[i]);
+    const diffDays = Math.round((prev.getTime() - curr.getTime()) / 86_400_000);
+    if (diffDays === 1) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
+  const [stats, setStats] = useState<ProfileStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  const fetchStats = useCallback(async () => {
+    if (!user) return;
+    setStatsLoading(true);
+    try {
+      const [votesRes, commentsRes, voteDatesRes] = await Promise.all([
+        supabase
+          .from('votes')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('comments')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('votes')
+          .select('created_at')
+          .eq('user_id', user.id),
+      ]);
+
+      const votesCast = votesRes.count ?? 0;
+      const comments = commentsRes.count ?? 0;
+      const dates = (voteDatesRes.data ?? []).map((v: any) => v.created_at as string);
+      const streak = calculateStreak(dates);
+
+      setStats({ votesCast, comments, streak });
+    } catch (err) {
+      console.error('[Profile] Error fetching stats:', err);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchStats();
+    }, [fetchStats])
+  );
 
   const handleSignOut = async () => {
     await signOut();
@@ -14,6 +88,8 @@ export default function ProfileScreen() {
   const email = user?.email ?? '';
   const name = user?.user_metadata?.display_name ?? email.split('@')[0] ?? 'User';
   const initials = name.slice(0, 2).toUpperCase();
+
+  const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -35,20 +111,26 @@ export default function ProfileScreen() {
 
       {/* Stats */}
       <View style={styles.statsRow}>
-        <View style={styles.stat}>
-          <Text style={styles.statValue}>—</Text>
-          <Text style={styles.statLabel}>Votes Cast</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.stat}>
-          <Text style={styles.statValue}>—</Text>
-          <Text style={styles.statLabel}>Comments</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.stat}>
-          <Text style={styles.statValue}>—</Text>
-          <Text style={styles.statLabel}>Streak 🔥</Text>
-        </View>
+        {statsLoading ? (
+          <ActivityIndicator color={Colors.gold} style={{ flex: 1 }} />
+        ) : (
+          <>
+            <View style={styles.stat}>
+              <Text style={styles.statValue}>{fmt(stats?.votesCast ?? 0)}</Text>
+              <Text style={styles.statLabel}>Votes Cast</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.stat}>
+              <Text style={styles.statValue}>{fmt(stats?.comments ?? 0)}</Text>
+              <Text style={styles.statLabel}>Comments</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.stat}>
+              <Text style={styles.statValue}>{stats?.streak ?? 0}</Text>
+              <Text style={styles.statLabel}>Streak 🔥</Text>
+            </View>
+          </>
+        )}
       </View>
 
       {/* Actions */}
@@ -113,11 +195,13 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
     borderWidth: 1,
     borderColor: Colors.border,
+    minHeight: 72,
+    alignItems: 'center',
   },
   stat: { flex: 1, alignItems: 'center' },
   statValue: { fontSize: 22, fontWeight: '900', color: Colors.white },
   statLabel: { fontSize: 12, color: Colors.textMuted, marginTop: 4 },
-  statDivider: { width: 1, backgroundColor: Colors.border },
+  statDivider: { width: 1, height: 36, backgroundColor: Colors.border },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
