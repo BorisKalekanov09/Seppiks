@@ -25,17 +25,10 @@ function RootLayoutNav() {
   }, []);
 
   useEffect(() => {
-    console.log('[RootLayoutNav] State changed:', { loading, hasSession: !!session, email: session?.user?.email });
-    if (loading) {
-      console.log('[RootLayoutNav] Still loading, not routing');
-      return;
-    }
-    console.log('[RootLayoutNav] Loading complete, making routing decision');
+    if (loading) return;
     if (session) {
-      console.log('[RootLayoutNav] ✓ Session found, routing to /(tabs)');
       router.replace('/(tabs)');
     } else {
-      console.log('[RootLayoutNav] ✗ No session, routing to /onboarding');
       router.replace('/onboarding');
     }
   }, [session, loading]);
@@ -59,6 +52,7 @@ function RootLayoutNav() {
       <Stack.Screen name="onboarding" />
       <Stack.Screen name="preferences" />
       <Stack.Screen name="preferences-type" />
+      <Stack.Screen name="demographics" />
       <Stack.Screen name="login" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen

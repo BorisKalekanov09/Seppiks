@@ -31,13 +31,11 @@ export default function SignupScreen() {
     if (error) {
       Alert.alert('Sign Up Failed', error.message);
     } else if (data.user) {
-      await supabase.from('profiles').upsert({
-        id: data.user.id,
-        display_name: name,
-        email,
-      });
+      // Demographics (age_group, gender, region) are kept in local storage and will
+      // be synced to the profile by AuthContext.onAuthStateChange once the user
+      // confirms their email and establishes a session.
       Alert.alert('Check your email', 'We sent you a confirmation link.', [
-        { text: 'OK', onPress: () => router.replace('/preferences') }
+        { text: 'OK', onPress: () => router.replace('/login') }
       ]);
     }
   };

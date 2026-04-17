@@ -111,6 +111,7 @@ export default function PreferencesScreen() {
         <View style={[styles.progressDot, styles.progressActive]} />
         <View style={styles.progressDot} />
         <View style={styles.progressDot} />
+        <View style={styles.progressDot} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -171,21 +172,18 @@ export default function PreferencesScreen() {
           })}
         </View>
 
-        <View style={{ height: 120 }} />
+        <View style={styles.bottomBar}>
+          <TouchableOpacity
+            style={[styles.continueBtn, selected.length === 0 && styles.continueBtnDisabled]}
+            onPress={handleContinue}
+            disabled={selected.length === 0}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.continueBtnText}>Continue</Text>
+          </TouchableOpacity>
+          <Text style={styles.stepText}>STEP 1 OF 4</Text>
+        </View>
       </ScrollView>
-
-      {/* Bottom CTA */}
-      <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={[styles.continueBtn, selected.length === 0 && styles.continueBtnDisabled]}
-          onPress={handleContinue}
-          disabled={selected.length === 0}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.continueBtnText}>Continue</Text>
-        </TouchableOpacity>
-        <Text style={styles.stepText}>STEP 1 OF 3</Text>
-      </View>
     </View>
   );
 }
@@ -276,14 +274,8 @@ const styles = StyleSheet.create({
   cardLabel: { fontSize: 16, fontWeight: '700', color: Colors.white, marginTop: 4 },
   cardDescription: { fontSize: 13, color: Colors.textSecondary, marginTop: 4, lineHeight: 18 },
   bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: Spacing.lg,
+    marginTop: Spacing.xl,
     paddingBottom: 36,
-    paddingTop: Spacing.sm,
-    backgroundColor: Colors.background,
     alignItems: 'center',
     gap: Spacing.sm,
   },

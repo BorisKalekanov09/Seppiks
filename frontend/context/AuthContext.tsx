@@ -22,75 +22,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    console.log('[AuthContext] ===== Initializing session restore =====');
-    
-    let isInitialCheckDone = false;
-    let hasSetLoadingFalse = false;
-    
-    // Safety timeout: if nothing happens after 5 seconds, force loading false
+    let initialized = false;
+
+    // Safety timeout: force loading false if auth never responds
     const safetyTimeout = setTimeout(() => {
-      console.log('[AuthContext] SAFETY TIMEOUT: forcing loading to false after 5s');
-      if (!hasSetLoadingFalse) {
+      if (!initialized) {
         setLoading(false);
-        hasSetLoadingFalse = true;
+        initialized = true;
       }
     }, 5000);
-    
-    console.log('[AuthContext] Setting up onAuthStateChange subscriber...');
+
+    // onAuthStateChange fires INITIAL_SESSION on startup, covering the getSession() case.
+    // Using it as the single source of truth avoids a duplicate token-refresh attempt
+    // that would otherwise happen when both onAuthStateChange and getSession() run concurrently
+    // against a stale stored refresh token.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      console.log('[AuthContext] *** onAuthStateChange fired ***', _event, session ? `User: ${session.user?.email}` : 'No session');
-      setSession(session);
-      isInitialCheckDone = true;
-      if (!hasSetLoadingFalse) {
+      setSession(session ?? null);
+
+      if (!initialized) {
         setLoading(false);
-        hasSetLoadingFalse = true;
-        console.log('[AuthContext] Setting loading to false from onAuthStateChange');
+        initialized = true;
+        clearTimeout(safetyTimeout);
       }
-      clearTimeout(safetyTimeout);
-      if (session && session.user) {
+
+      // Sync locally-stored preferences and demographics to Supabase on sign-in
+      if (session?.user) {
         setTimeout(async () => {
           try {
             const cats = await storage.getItem('pref_categories');
             if (cats) {
               const parsed = JSON.parse(cats);
-              console.log('[AuthContext] Syncing preferences to Supabase:', parsed);
-              const { error } = await supabase.from('preferences').upsert(
-                { user_id: session.user.id, categories: parsed },
-                { onConflict: 'user_id' }
-              );
-              if (error) console.error('[AuthContext] Error syncing:', error);
-              else console.log('[AuthContext] Syncing preferences complete');
+              await supabase
+                .from('preferences')
+                .upsert({ user_id: session.user.id, categories: parsed }, { onConflict: 'user_id' });
             }
-          } catch (err) {
-            console.warn('Failed to sync local preferences to Supabase', err);
+          } catch {
+            // Non-fatal — local prefs will sync on next sign-in
+          }
+
+          try {
+            const [ageGroup, gender, region] = await Promise.all([
+              storage.getItem('demo_age_group'),
+              storage.getItem('demo_gender'),
+              storage.getItem('demo_region'),
+            ]);
+            const updates: Record<string, string> = {};
+            if (ageGroup) updates.age_group = ageGroup;
+            if (gender)   updates.gender    = gender;
+            if (region?.trim()) updates.region = region.trim();
+            if (Object.keys(updates).length > 0) {
+              await supabase.from('profiles').update(updates).eq('id', session.user.id);
+              await Promise.all([
+                storage.removeItem('demo_age_group'),
+                storage.removeItem('demo_gender'),
+                storage.removeItem('demo_region'),
+              ]);
+            }
+          } catch {
+            // Non-fatal — demographics will sync on next sign-in
           }
         }, 0);
       }
     });
 
-    // Also restore initial session
-    console.log('[AuthContext] Calling getSession...');
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      console.log('[AuthContext] *** getSession returned ***:', session ? `User: ${session.user?.email}` : 'No session');
-      if (session && !hasSetLoadingFalse) {
-        setSession(session);
-        isInitialCheckDone = true;
-        setLoading(false);
-        hasSetLoadingFalse = true;
-        console.log('[AuthContext] Setting loading to false from getSession');
-      }
-      clearTimeout(safetyTimeout);
-    }).catch((err) => {
-      console.error('[AuthContext] getSession error:', err);
-      clearTimeout(safetyTimeout);
-      if (!hasSetLoadingFalse) {
-        setLoading(false);
-        hasSetLoadingFalse = true;
-      }
-    });
-
     return () => {
-      console.log('[AuthContext] Cleanup: unsubscribing');
       subscription.unsubscribe();
       clearTimeout(safetyTimeout);
     };

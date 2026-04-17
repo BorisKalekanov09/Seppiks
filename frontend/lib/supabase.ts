@@ -5,7 +5,6 @@ import { storage } from './storage';
 const supabaseUrl = 'https://zexkvpvkgnsycmhkmrkq.supabase.co';
 const supabaseAnonKey = 'sb_publishable_o-UXqdgcxmWlTR0Z327Mbg_WaGxlXRR';
 
-console.log('[Supabase] Initializing Supabase client with custom storage adapter');
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: storage,
@@ -15,4 +14,3 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     flowType: 'pkce',
   },
 });
-console.log('[Supabase] Client initialized');

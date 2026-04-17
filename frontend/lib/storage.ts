@@ -2,110 +2,125 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
-// In-memory fallback storage for when native modules are unavailable
+// In-memory fallback for when native modules are unavailable
 const memoryStorage = new Map<string, string>();
 const isWeb = Platform.OS === 'web';
 
+// Matches Supabase auth token keys, e.g. "sb-zexkvpvkgnsycmhkmrkq-auth-token"
+const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9]+-auth-token$/;
+
+/**
+ * Checks whether a raw stored Supabase session JSON has an expired access token.
+ * When the access token is expired, Supabase will try to refresh it. If the
+ * refresh token has also been invalidated server-side (e.g. after a project
+ * pause on the free tier), Supabase retries up to ~3 times and logs an
+ * AuthApiError for each attempt. Returning null here prevents Supabase from
+ * ever seeing the stale token and eliminates those error logs.
+ */
+function isExpiredSupabaseSession(raw: string): boolean {
+  try {
+    const { expires_at } = JSON.parse(raw);
+    return typeof expires_at === 'number' && expires_at * 1000 < Date.now();
+  } catch {
+    return true; // unparseable value — treat as stale
+  }
+}
+
 export const storage = {
   async setItem(key: string, value: string): Promise<void> {
-    console.log(`[storage.setItem] START: ${key} (len: ${value.length})`);
-    const startTime = Date.now();
-    
     if (isWeb) {
       try {
         if (typeof window !== 'undefined') {
           window.localStorage.setItem(key, value);
-          console.log(`[storage.setItem] Web localStorage SET: ${key} (${Date.now() - startTime}ms)`);
+          return;
         }
-        return;
-      } catch (e) {
-        console.warn(`[storage.setItem] Web localStorage error:`, e);
+      } catch {
         memoryStorage.set(key, value);
         return;
       }
     }
 
-    // Try AsyncStorage first
     try {
       if (AsyncStorage && typeof AsyncStorage.setItem === 'function') {
         await AsyncStorage.setItem(key, value);
-        console.log(`[storage.setItem] AsyncStorage SET: ${key} (${Date.now() - startTime}ms)`);
         return;
       }
-    } catch (err) {
-      console.warn(`[storage.setItem] AsyncStorage failed (${Date.now() - startTime}ms), trying SecureStore...`);
+    } catch {
+      // fall through to SecureStore
     }
 
-    // Try expo-secure-store as a persistent fallback (works in Expo Go)
     try {
-      if (SecureStore && SecureStore.setItemAsync) {
+      if (SecureStore?.setItemAsync) {
         await SecureStore.setItemAsync(key, value);
-        console.log(`[storage.setItem] SecureStore SET: ${key} (${Date.now() - startTime}ms)`);
         return;
       }
-    } catch (err) {
-      console.warn(`[storage.setItem] SecureStore error (${Date.now() - startTime}ms):`, err);
+    } catch {
+      // fall through to memory
     }
 
-    // Fallback to memory
-    console.log(`[storage.setItem] Memory SET: ${key} (${Date.now() - startTime}ms)`);
     memoryStorage.set(key, value);
   },
 
   async getItem(key: string): Promise<string | null> {
-    console.log(`[storage.getItem] START: ${key}`);
-    const startTime = Date.now();
-    
+    let value: string | null = null;
+
     if (isWeb) {
       try {
-        if (typeof window !== 'undefined') {
-          const val = window.localStorage.getItem(key);
-          console.log(`[storage.getItem] Web localStorage for ${key}: ${val ? 'found' : 'not found'} (${Date.now() - startTime}ms)`);
-          return val;
-        }
-      } catch (e) {
-        console.warn(`[storage.getItem] Web localStorage error:`, e);
-        return memoryStorage.get(key) ?? null;
+        value = typeof window !== 'undefined'
+          ? window.localStorage.getItem(key)
+          : (memoryStorage.get(key) ?? null);
+      } catch {
+        value = memoryStorage.get(key) ?? null;
       }
+    } else {
+      try {
+        if (AsyncStorage && typeof AsyncStorage.getItem === 'function') {
+          const v = await AsyncStorage.getItem(key);
+          if (v !== null) value = v;
+        }
+      } catch {
+        // fall through
+      }
+
+      if (value === null) {
+        try {
+          if (SecureStore?.getItemAsync) {
+            const v = await SecureStore.getItemAsync(key);
+            if (v !== null) value = v;
+          }
+        } catch {
+          // fall through
+        }
+      }
+
+      if (value === null) {
+        value = memoryStorage.get(key) ?? null;
+      }
+    }
+
+    // Proactively clear expired Supabase auth sessions before returning them.
+    // When an access token has expired, Supabase will attempt to refresh it
+    // using the stored refresh token. If the refresh token is also invalid
+    // (e.g. after a free-tier project pause), Supabase retries ~3 times and
+    // logs an AuthApiError on each attempt. Returning null here prevents those
+    // retries entirely. Trade-off: re-login is required after the 1-hour access
+    // token lifetime, even if the refresh token is still valid server-side.
+    if (value !== null && SUPABASE_AUTH_KEY_RE.test(key) && isExpiredSupabaseSession(value)) {
+      await this.removeItem(key);
       return null;
     }
 
-    try {
-      console.log(`[storage.getItem] Trying AsyncStorage for ${key}...`);
-      if (AsyncStorage && typeof AsyncStorage.getItem === 'function') {
-        const v = await AsyncStorage.getItem(key);
-        console.log(`[storage.getItem] AsyncStorage for ${key}: ${v ? 'found' : 'not found'} (${Date.now() - startTime}ms)`);
-        if (v !== null) return v;
-      }
-    } catch (err) {
-      console.warn(`[storage.getItem] AsyncStorage error for ${key}:`, err);
-    }
-
-    try {
-      console.log(`[storage.getItem] Trying SecureStore for ${key}...`);
-      if (SecureStore && SecureStore.getItemAsync) {
-        const v = await SecureStore.getItemAsync(key);
-        console.log(`[storage.getItem] SecureStore for ${key}: ${v ? 'found' : 'not found'} (${Date.now() - startTime}ms)`);
-        if (v !== null) return v;
-      }
-    } catch (err) {
-      console.warn(`[storage.getItem] SecureStore error for ${key}:`, err);
-    }
-
-    const memVal = memoryStorage.get(key) ?? null;
-    console.log(`[storage.getItem] Memory for ${key}: ${memVal ? 'found' : 'not found'} (${Date.now() - startTime}ms)`);
-    return memVal;
+    return value;
   },
 
   async removeItem(key: string): Promise<void> {
     if (isWeb) {
       try {
         if (typeof window !== 'undefined') window.localStorage.removeItem(key);
-        return;
-      } catch (e) {
+      } catch {
         memoryStorage.delete(key);
-        return;
       }
+      return;
     }
 
     try {
@@ -113,17 +128,17 @@ export const storage = {
         await AsyncStorage.removeItem(key);
         return;
       }
-    } catch (err) {
-      // ignore
+    } catch {
+      // fall through
     }
 
     try {
-      if (SecureStore && SecureStore.deleteItemAsync) {
+      if (SecureStore?.deleteItemAsync) {
         await SecureStore.deleteItemAsync(key);
         return;
       }
-    } catch (err) {
-      // ignore
+    } catch {
+      // fall through
     }
 
     memoryStorage.delete(key);
@@ -133,11 +148,10 @@ export const storage = {
     if (isWeb) {
       try {
         if (typeof window !== 'undefined') window.localStorage.clear();
-        return;
-      } catch (e) {
+      } catch {
         memoryStorage.clear();
-        return;
       }
+      return;
     }
 
     try {
@@ -145,10 +159,10 @@ export const storage = {
         await AsyncStorage.clear();
         return;
       }
-    } catch (err) {/* ignore */}
+    } catch {
+      // ignore
+    }
 
-    // No universal clear for SecureStore, do nothing or clear memory
     memoryStorage.clear();
   },
 };
-

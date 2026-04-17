@@ -14,6 +14,7 @@ import * as Sentry from "@sentry/node";
 import { env } from "./lib/env";
 import rateLimitPlugin from "./plugins/rate-limit";
 import { questionRoutes } from "./routes/questions";
+import { adminRoutes } from "./routes/admin";
 import { setupWorkers, shutdownWorkers } from "./workers/index";
 
 // Initialization
@@ -71,6 +72,7 @@ async function start() {
 
     // 3. API Routes
     await fastify.register(questionRoutes, { prefix: "/api/questions" });
+    await fastify.register(adminRoutes,    { prefix: "/api/admin" });
 
     // 4. Background Workers Configuration
     await setupWorkers();

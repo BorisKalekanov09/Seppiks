@@ -31,7 +31,7 @@ export default function PreferencesTypeScreen() {
   const handleContinue = async () => {
     if (!selected) return;
     await storage.setItem('pref_content_type', selected);
-    router.push('/login');
+    router.push('/demographics');
   };
 
   return (
@@ -48,6 +48,7 @@ export default function PreferencesTypeScreen() {
       <View style={styles.progressRow}>
         <View style={[styles.progressDot, styles.progressDone]} />
         <View style={[styles.progressDot, styles.progressActive]} />
+        <View style={styles.progressDot} />
         <View style={styles.progressDot} />
       </View>
 
@@ -80,21 +81,18 @@ export default function PreferencesTypeScreen() {
           })}
         </View>
 
-        <View style={{ height: 120 }} />
+        <View style={styles.bottomBar}>
+          <TouchableOpacity
+            style={[styles.continueBtn, !selected && styles.continueBtnDisabled]}
+            onPress={handleContinue}
+            disabled={!selected}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.continueBtnText}>Continue →</Text>
+          </TouchableOpacity>
+          <Text style={styles.stepText}>STEP 2 OF 4</Text>
+        </View>
       </ScrollView>
-
-      {/* Bottom CTA */}
-      <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={[styles.continueBtn, !selected && styles.continueBtnDisabled]}
-          onPress={handleContinue}
-          disabled={!selected}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.continueBtnText}>Continue →</Text>
-        </TouchableOpacity>
-        <Text style={styles.stepText}>STEP 2 OF 3</Text>
-      </View>
     </View>
   );
 }
@@ -178,14 +176,8 @@ const styles = StyleSheet.create({
   cardLabel: { fontSize: 17, fontWeight: '700', color: Colors.white, marginTop: 4 },
   cardDescription: { fontSize: 13, color: Colors.textSecondary, marginTop: 4, lineHeight: 19 },
   bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: Spacing.lg,
+    marginTop: Spacing.xl,
     paddingBottom: 36,
-    paddingTop: Spacing.sm,
-    backgroundColor: Colors.background,
     alignItems: 'center',
     gap: Spacing.sm,
   },
